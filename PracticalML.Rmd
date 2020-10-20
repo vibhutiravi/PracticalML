@@ -1,0 +1,130 @@
+---
+title: Prediction Assignment - Practical ML
+author: Vibhuti Ravi
+output:
+  html_document:
+    fig_height: 8
+    fig_width: 8
+---
+
+## Intro  
+
+A lot of data is constantly generated from fitness devices about personal movement and acticity. This data is used by people to track how much of a particular activity they have done most days. However, it is also important for these users to know how well they are performing the activity.
+
+We will therefore be using this accelerometer data to predict how 6 participants carried out the exercise.
+
+
+## Preprocessing the accelerometer data
+```{r, cache = T}
+library(randomForest)
+library(caret)
+library(rpart.plot)
+library(corrplot)
+library(rpart)
+```
+### Downloadind Data
+```{r, cache = T}
+trainingu <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingu <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingcsv <- "./data1/pml-training.csv"
+testingcsv  <- "./data1/pml-testing.csv"
+if (!file.exists("./data1")) {
+  dir.create("./data1")
+}
+if (!file.exists(trainingcsv)) {
+  download.file(trainingu, destfile=trainingcsv)
+}
+if (!file.exists(testingcsv)) {
+  download.file(testingu, destfile=testingcsv)
+}
+```  
+### Reading in the accelerometer Data
+We will be using two dataframes for the two csv files
+```{r, cache = T}
+trainingrawdata <- read.csv("./data1/pml-training.csv")
+testingrawdata <- read.csv("./data1/pml-testing.csv")
+dim(trainingrawdata)
+dim(testingrawdata)
+```
+Training set :  19622 observations 
+Testing data :  20 observations 
+Both contain 160 variables. 
+The outcome to be predicted is the "classe" variable.
+
+### Cleaning
+Removing missing and improper data
+```{r, cache = T}
+sum(complete.cases(trainingrawdata))
+```
+Removing NA values
+```{r, cache = T}
+trainingrawdata <- trainingrawdata[, colSums(is.na(trainingrawdata)) == 0] 
+testingrawdata <- testingrawdata[, colSums(is.na(testingrawdata)) == 0] 
+```  
+Remove columns that do not make so much of a contribution
+```{r, cache = T}
+classe <- trainingrawdata$classe
+trainingRemove <- grepl("^X|timestamp|window", names(trainingrawdata))
+trainingrawdata <- trainingrawdata[, !trainingRemove]
+trainCleaned <- trainingrawdata[, sapply(trainingrawdata, is.numeric)]
+trainCleaned$classe <- classe
+testingRemove <- grepl("^X|timestamp|window", names(testingrawdata))
+testingrawdata <- testingrawdata[, !testingRemove]
+testCleaned <- testingrawdata[, sapply(testingrawdata, is.numeric)]
+```
+Training data: 19622 observations 
+Testing data: 20 observations 
+Both have 53 variables
+
+### Slicing
+We will be splitting the data into a validation set which will be 30% of the data and the rest 70% will be the training set.
+Crossing validation will be carried out later using the first set.
+ 
+```{r, cache = T}
+set.seed(22519) # For reproducibile purpose
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+## Data Models
+Here, it is essential that we use a model that is robust to outliers and automatically seletcs the more crucial variables.
+Therefore, the predictive model that will be used is the Random Forest algorithm and the 5 fold cross validation will be used.
+
+```{r, cache = T}
+controlingRf <- trainControl(method="cv", 5)
+modelingRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlingRf, ntree=250)
+modelingRf
+```
+Estimating model,
+```{r, cache = T}
+predictingRf <- predict(modelingRf, testData)
+confusionMatrix(testData$classe, predictingRf)
+```
+```{r, cache = T}
+accuracy <- postResample(predictingRf, testData$classe)
+accuracy
+oose <- 1 - as.numeric(confusionMatrix(testData$classe, predictingRf)$overall[1])
+oose
+```
+Therefore, the accuracy -> 99.37%.
+The out-of-sample error -> 0.63%.
+
+## Prediction
+Removing `problem_id` column,  
+```{r, cache = T}
+result <- predict(modelingRf, testCleaned[, -length(names(testCleaned))])
+result
+```  
+
+## Figures
+1. Correlation Matrix Visualization  
+```{r, cache = T}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="color")
+```
+2. Decision Tree Visualization
+```{r, cache = T}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel) # fast plot
+```
